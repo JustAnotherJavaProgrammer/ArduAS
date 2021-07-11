@@ -1,14 +1,14 @@
-0x0	ADD	ADD regA, regB
-0x1	ADC	ADC regA, regB
-0x2	ADDI	ADDI regA, byte1~2
-0x3	ADCI	ADCI regA, byte1~2
+0x0	ADD	ADD regA, regB
+0x1	ADC	ADC regA, regB
+0x2	ADDI	ADDI regA, byte1~2
+0x3	ADCI	ADCI regA, byte1~2
 0x4	SUB	SUB regA, regB
-0x5	SUC	SUC regA, regB
+0x5	SUC	SUC regA, regB
 0x6	SUBI	SUBI regA, byte1~2
 0x7	SUCI	SUCI regA, byte1~2
 0x8	AND	AND regA, regB
 0x9	ANDI	ANDI regA, byte1~2
-0xA	OR	OR regA, regB
+0xA	OR	OR regA, regB
 0xB	ORI	ORI regA, byte1~2
 0xC	XOR	XOR regA, regB
 0xD	XORI	XORI regA, byte1~2
@@ -27,15 +27,15 @@
 0x1A	LSL	LSL regA
 0x1B	LSR	LSR regA
 0x1C	ROL	ROL regA
-0x1D	ROR	ROR regA
+0x1D	ROR	ROR regA
 0x1E	ASR	ASR regA
 0x1F	SWAP	SWAP regA
-0x20	FSET	FSET byte1
+0x20	FSET	FSET byte1
 0x21	FCLR	FCLR byte1
 0x22	BST	BST regA, byte1
 0x23	BLD	BLD regA, byte1
 0x24	MOV	MOV regA, regB
-0x25	LDI	LDI regA, byte~2
+0x25	LDI	LDI regA, byte~2
 0x26	LDR	LDR regA, regB~regC
 0x27	STR	STR regA, regB~regC
 0x28	PUSH	PUSH regA
@@ -100,11 +100,11 @@
 0x63	FISDIR	FISDIR regA
 0x64	FNEXT	FNEXT
 0x65	FREW	FREW
-0x66	FOUT	FOUT regA
+0x66	FOUT	FOUT regA
 0x67	FOUTI	FOUTI byte1
 0x68	FIN	FIN regA
 0x69	SET	SET regA, regB~C
 0x6A	SETI	SETI byte1, regB~C
 0x6B	GET	GET regA
 0x6C	GETI	GETI byte1
-0x6D	RUN	RUN regA~B
+0x6D	RUN	RUN regA~B

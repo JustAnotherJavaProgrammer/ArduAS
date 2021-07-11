@@ -7,4 +7,6 @@ ___
 
 ```
 // TODO: complete this readme
+// For development purposes, run using:
+deno run --allow-read --allow-write --allow-net=deno.land,raw.githubusercontent.com --allow-run --unstable --watch arduas.ts
 ```
