@@ -9,10 +9,18 @@ https://stackoverflow.com/questions/57131654/using-utf-8-encoding-chcp-65001-in-
 }
 
 const spinner = wait("Loading grammar...").start();
-const grammar = await Deno.readTextFile("./grammar.txt");
-spinner.succeed();
+const assembler: Assembler = await (async () => {
+    const grammar = await Deno.readTextFile("./grammar.txt");
+    spinner.succeed();
 
-const decoder = new TextDecoder();
+    const decoder = new TextDecoder();
 
-const assembler = new Assembler(async (filename) => decoder.decode(await Deno.readFile(filename)), path => resolve(normalize(path)), grammar, spinner);
-assembler.assemble("grammar.txt")
+    return new Assembler(async (filename) => decoder.decode(await Deno.readFile(filename)), path => resolve(normalize(path)), grammar, spinner);
+})();
+
+const sourceFile = "hello_world.asm";
+spinner.text = `Assembling ${sourceFile} ...`; spinner.color= "magenta";
+spinner.start();
+spinner.info();
+spinner.indent = 1;
+const binaryData = assembler.assemble(sourceFile);
