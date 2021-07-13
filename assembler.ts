@@ -68,23 +68,21 @@ export default class Assembler {
         this.spinner.text = "Sorting the source files...";
         this.spinner.color = "gray";
         this.spinner.start();
-        const sortedSourceFiles = [];
+        const sortedSourceFiles:string[] = [];
         {
             const depMap = new Map<string, string[]>();
             for (const [filename, sourceFile] of sourceFiles) {
                 depMap.set(filename, sourceFile.dependencies);
             }
             try {
-                sortedSourceFiles.push(...toposortReverse(depMap));
+                sortedSourceFiles.push(...toposortReverse(depMap).flatMap(elem => Array.from(elem)));
             } catch (_e) {
                 this.spinner.fail();
                 throw new Error(`The source files contain circular dependencies!`);
             }
         }
-        console.log(sourceFiles);
-        console.log(sortedSourceFiles);
         this.spinner.succeed(`Sorted ${sortedSourceFiles.length} source file${sortedSourceFiles.length == 1 ? "" : "s"}!`);
-
+        console.log(sortedSourceFiles);
         return new Uint8Array([65, 114, 100, 117, 79, 83, 32, 98, 121, 116, 101, 99, 111, 100, 101]);
     }
 
