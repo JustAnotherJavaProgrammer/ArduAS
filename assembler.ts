@@ -1,4 +1,5 @@
 import type { Spinner } from "https://deno.land/x/wait@0.1.11/mod.ts";
+import { toposortReverse } from "https://raw.githubusercontent.com/n1ru4l/toposort/main/src/toposort.ts";
 
 export default class Assembler {
     getAssembly: (filename: string) => Promise<string>;
@@ -33,30 +34,68 @@ export default class Assembler {
         this.spinner.start();
         filename = this.filepathNormalizer(filename);
         const sourceFiles = new Map<string, AssemblyFile>();
-        sourceFiles.set(filename, await this.loadAssemblyFile(filename));
-        {
-            const dependencyQueue: string[] = sourceFiles.get(filename)?.dependencies ?? [];
-            while (dependencyQueue.length > 0) {
-                const dep: string = dependencyQueue.shift() ?? "";
-                if (!sourceFiles.has(dep)) {
-                    const assemblyFile = await this.loadAssemblyFile(dep);
-                    dependencyQueue.push(...assemblyFile.dependencies);
-                    sourceFiles.set(assemblyFile.filename, assemblyFile);
+        try {
+            sourceFiles.set(filename, await this.loadAssemblyFile(filename));
+            {
+                const dependencyQueue: string[] = [...sourceFiles.get(filename)?.dependencies ?? []];
+                while (dependencyQueue.length > 0) {
+                    const dep: string = dependencyQueue.shift() ?? "";
+                    if (!sourceFiles.has(dep)) {
+                        const assemblyFile = await this.loadAssemblyFile(dep);
+                        dependencyQueue.push(...assemblyFile.dependencies);
+                        sourceFiles.set(assemblyFile.filename, assemblyFile);
+                    }
                 }
             }
+        } catch (e) {
+            this.spinner.fail();
+            throw e;
         }
         this.spinner.succeed(`Loaded ${sourceFiles.size} source file${sourceFiles.size == 1 ? "" : "s"}!`);
+        this.spinner.text = "Collecting labels...";
+        this.spinner.color = "yellow";
+        this.spinner.start();
+        const labels = new Map<string, Label[]>();
+        for (const [filename, assemblyFile] of sourceFiles) {
+            for (const [lineNo, name] of assemblyFile.labels) {
+                if (!labels.has(name))
+                    labels.set(name, []);
+                labels.get(name)?.push({ name: name, filename: filename, lineNo: lineNo });
+                this.spinner.text = `Collecting labels: ${labels.size}`;
+            }
+        }
+        this.spinner.succeed(`Collected ${labels.size} label${labels.size == 1 ? "" : "s"}`);
+        this.spinner.text = "Sorting the source files...";
+        this.spinner.color = "gray";
+        this.spinner.start();
+        const sortedSourceFiles = [];
+        {
+            const depMap = new Map<string, string[]>();
+            for (const [filename, sourceFile] of sourceFiles) {
+                depMap.set(filename, sourceFile.dependencies);
+            }
+            try {
+                sortedSourceFiles.push(...toposortReverse(depMap));
+            } catch (_e) {
+                this.spinner.fail();
+                throw new Error(`The source files contain circular dependencies!`);
+            }
+        }
+        console.log(sourceFiles);
+        console.log(sortedSourceFiles);
+        this.spinner.succeed(`Sorted ${sortedSourceFiles.length} source file${sortedSourceFiles.length == 1 ? "" : "s"}!`);
+
         return new Uint8Array([65, 114, 100, 117, 79, 83, 32, 98, 121, 116, 101, 99, 111, 100, 101]);
     }
 
     async loadAssemblyFile(filename: string): Promise<AssemblyFile> {
         filename = this.filepathNormalizer(filename);
         this.spinner.text = `Loading source file: ${filename}`;
-        const rawLines = await (await this.getAssembly(filename)).split(/(\r\n|\r|\n)/gm).filter(line => line !== "\n" && line !== "\r" && line !== "\r\n");
+        const rawLines = (await this.getAssembly(filename)).split(/(\r\n|\r|\n)/gm).filter(line => line !== "\n" && line !== "\r" && line !== "\r\n");
         const result: AssemblyFile = {
             filename: filename, dependencies: [],
             rawLines: rawLines, lines: rawLines.map(line => line.trim().split(/(?<!'(.))(;|\/\/)(?!(.?)')/gm, 2)[0]),
-            labels: new Map<string, number>(),
+            labels: new Map<number, string>(),
             code: []
         };
         for (const line of result.lines) {
@@ -77,7 +116,7 @@ export default class Assembler {
             splitted[0] = splitted[0].trim();
             if (!splitted[0].endsWith(":"))
                 continue;
-            result.labels.set(splitted[0].trim().substr(0, splitted[0].trim().length - 1), i);
+            result.labels.set(i, splitted[0].trim().substr(0, splitted[0].trim().length - 1));
         }
         return result;
     }
@@ -86,11 +125,25 @@ export default class Assembler {
         line = line.trim().toUpperCase();
         return [...this.grammar.keys()].some(mnemonic => line.startsWith(mnemonic + " "));
     }
+
+    async transformAssemblyFile(sourceFile: AssemblyFile, labels: Map<string, Label[]>, availableFiles: Map<string, AssemblyFile>, assemblerOrder: string[]) {
+        // TODO: implement
+    }
 }
 
 type Grammar = Map<string, Instruction>;
 
 type AssemblyLine = { code: string, lineNo: number, filename: string };
+
+type TransformedAssemblyLine = AssemblyLine & { generator: BinaryGenerator };
+
+type BinaryGenerator = (labels: Map<Label, number>) => Uint8Array;
+
+interface Label {
+    name: string;
+    lineNo: number;
+    filename: string;
+}
 
 interface Instruction {
     id: number;
@@ -103,6 +156,6 @@ interface AssemblyFile {
     dependencies: string[],
     lines: string[],
     rawLines: string[],
-    labels: Map<string, number>,
+    labels: Map<number, string>,
     code: AssemblyLine[]
 }
