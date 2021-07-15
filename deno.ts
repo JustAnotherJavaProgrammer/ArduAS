@@ -20,13 +20,13 @@ const assembler: Assembler = await (async () => {
 
 const sourceFile = "hello_world.asm";
 const outputFile = "HELLO.RUN";
-spinner.text = `Assembling ${sourceFile} ...`; spinner.color= "magenta";
+spinner.text = `Assembling ${sourceFile} ...`; spinner.color = "magenta";
 spinner.start();
 spinner.info();
 spinner.indent = 1;
 try {
-const binaryData = await assembler.assemble(sourceFile);
-// await Deno.writeFile(outputFile, binaryData);
+    const binaryData = await assembler.assemble(sourceFile);
+    // await Deno.writeFile(outputFile, binaryData);
 } catch (e) {
     spinner.indent = 0;
     spinner.fail(`Compilation failed: ${e.message}`);
