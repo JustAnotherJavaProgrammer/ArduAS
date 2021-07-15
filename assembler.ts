@@ -68,7 +68,7 @@ export default class Assembler {
         this.spinner.text = "Sorting the source files...";
         this.spinner.color = "gray";
         this.spinner.start();
-        const sortedSourceFiles:string[] = [];
+        const sortedSourceFiles: string[] = [];
         {
             const depMap = new Map<string, string[]>();
             for (const [filename, sourceFile] of sourceFiles) {
@@ -124,8 +124,38 @@ export default class Assembler {
         return [...this.grammar.keys()].some(mnemonic => line.startsWith(mnemonic + " "));
     }
 
-    async transformAssemblyFile(sourceFile: AssemblyFile, labels: Map<string, Label[]>, availableFiles: Map<string, AssemblyFile>, assemblerOrder: string[]) {
+    transformAssemblyFile(sourceFile: AssemblyFile, labels: Map<string, Label[]>, availableFiles: Map<string, AssemblyFile>, assemblerOrder: string[]): TransformedAssemblyFile {
+        const generatorArr:BinaryGenerator = [];
+        for(const line of sourceFile.code) {
+            const codeSplit = line.code.split(/\s/g).map(e => e.trim()).filter(e => e.length > 0);
+            const mnemonic = codeSplit[0];
+            
+        }
         // TODO: implement
+    }
+
+    static createSimpleGenerator(result: Uint8Array): BinaryGenerator {
+        return () => result;
+    }
+
+    static createLabelResolveGenerator(instrID: number, target: Label, startingAtByteNo = 0, howLong = 3): BinaryGenerator {
+        return (labels: Map<Label, number>) => {
+            const targetNo = labels.get(target);
+            if (targetNo === undefined)
+                throw new Error(`Label ${target.name} from file ${target.filename}:${target.lineNo+1} could not be located!`);
+            const res = new Uint8Array(4);
+            const baseShift = startingAtByteNo * 8;
+            res[0] = instrID;
+            for(let i = 0; i < howLong; i++) {
+                res[i+1] = targetNo >>> (baseShift + (i*8)); 
+            }
+            return res;
+        };
+    }
+
+    static isAbsoluteBranchInstruction(mnemonic: string): boolean {
+        mnemonic = mnemonic.trim().toUpperCase();
+        return mnemonic.startsWith("BR") || mnemonic === "CALLI" || mnemonic === "JMPI";
     }
 }
 
@@ -156,4 +186,8 @@ interface AssemblyFile {
     rawLines: string[],
     labels: Map<number, string>,
     code: AssemblyLine[]
+}
+
+interface TransformedAssemblyFile extends AssemblyFile {
+    code: TransformedAssemblyLine[];
 }
