@@ -35,7 +35,7 @@
 0x22	BST	BST regA, byte1
 0x23	BLD	BLD regA, byte1
 0x24	MOV	MOV regA, regB
-0x25	LDI	LDI regA, byte~2
+0x25	LDI	LDI regA, byte1~2
 0x26	LDR	LDR regA, regB~regC
 0x27	STR	STR regA, regB~regC
 0x28	PUSH	PUSH regA
