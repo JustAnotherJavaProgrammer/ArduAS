@@ -33,15 +33,18 @@ export default class Assembler {
             return {
                 ...instr, parser: (line: AssemblyLine, sourceFile: AssemblyFile, labels: Map<string, Label[]>,
                     availableFiles: Map<string, AssemblyFile>, assemblerOrder: string[]) => {
-                    const args = line.code.split(/s/g).map(e => e.trim()).filter((_e, i) => i > 0);
+                    const args = Assembler.getArgs(line.code);
                     if (args.length == 0)
                         throw new Error(`Too few arguments provided for instruction at ${line.filename}:${line.lineNo + 1} :\n${sourceFile.rawLines[line.lineNo]}`);
                     if (labels.has(args[0]))
                         return Assembler.createLabelResolveGenerator(instr.id, this.resolveLabelName(args[0], line, labels, availableFiles, assemblerOrder));
+                    // TODO: Add special case for RJMP
                     this.warn(`Warning at ${line.filename}:${line.lineNo + 1} : Jumping to explicit addresses is discouraged. Use labels instead`);
+                    // TODO: implement regular parsing
                 }
             }
         }
+        // TODO: implement parsing for "normal" instructions
         return instr as Instruction;
     }
 
@@ -230,6 +233,32 @@ ${candidates}`);
         }
         this.warn(`Multiple candidates for label "${labelName}" at ${line.filename}:${line.lineNo + 1} - Choosing candidate at ${result.filename}:${result.lineNo + 1}`);
         return result;
+    }
+
+    static getArgs(code: string): string[] {
+        const splits = [];
+        {
+            // deno-lint-ignore no-empty-character-class
+            const singleQuote = Array.from(code.matchAll(/(?<!\\)'/gd)).map(e => e.index);
+            // deno-lint-ignore no-empty-character-class
+            const whitespace = Array.from(code.matchAll(/\s/gd)).map(e => e.index);
+            for (const index of singleQuote) {
+                if (index === undefined)
+                    throw new Error("A matching single quote has no index!");
+            }
+            for (const index of whitespace) {
+                if (index === undefined)
+                    throw new Error("A matching whitespace has no index!");
+                // Check for an even number of (not escaped) single quotes before the whitespace
+                if ((singleQuote as number[]).reduce((acc, val) => val < index ? acc + 1 : acc, 0) % 2 === 0)
+                    splits.push(index);
+            }
+        }
+        const result: string[] = [];
+        for (let i = 0; i < splits.length; i++) {
+            result.push(code.substring(splits[i], i < splits.length - 1 ? splits[i + 1] : undefined).trim());
+        }
+        return result.filter(e => e.length > 0);
     }
 
     warn(warning: string) {
