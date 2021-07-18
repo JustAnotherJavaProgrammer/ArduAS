@@ -1,5 +1,6 @@
 import type { Spinner } from "https://deno.land/x/wait@0.1.11/mod.ts";
 import { toposortReverse } from "https://raw.githubusercontent.com/n1ru4l/toposort/main/src/toposort.ts";
+const regLimit = 34;
 
 export default class Assembler {
     getAssembly: (filename: string) => Promise<string>;
@@ -29,10 +30,36 @@ export default class Assembler {
     }
 
     protected createInstrParser(instr: Omit<Instruction, "parser">): Instruction {
+        const argParsers: ArgParser[] = instr.args.map(arg => this.createArgParser(arg));
+        const regularParser = (line: AssemblyLine, sourceFile: AssemblyFile, _labels: Map<string, Label[]>,
+            _availableFiles: Map<string, AssemblyFile>, _assemblerOrder: string[]): BinaryGenerator => {
+            const args = Assembler.getArgs(line.code);
+            if (args.length < argParsers.length)
+                throw new Error(`Error at ${line.filename}:${line.lineNo + 1} - Not enough arguments for instruction ${instr.mnemonic}! (${instr.args.length} arguments expected, ${args.length} arguments received)\n${sourceFile.rawLines[line.lineNo]}`);
+            if (args.length > argParsers.length)
+                throw new Error(`Error at ${line.filename}:${line.lineNo + 1} - Too many arguments for instruction ${instr.mnemonic}! (${args.length} arguments received, ${argParsers.length} arguments expected)\n${sourceFile.rawLines[line.lineNo]}`);
+            const results: Uint8Array[] = [];
+            for (let i = 0; i < args.length; i++) {
+                try {
+                    results.push(argParsers[i](args[i], line));
+                } catch (e) {
+                    throw new Error(`Error at ${line.filename}:${line.lineNo + 1} - ${e.message}\n${sourceFile.rawLines[line.lineNo]}`);
+                }
+            }
+            const result = new Uint8Array(Math.max(results.reduce((acc, val) => acc + val.length, 1), 4));
+            if (result.length != 4)
+                throw new Error(`Error while parsing ${line.filename}:${line.lineNo} - The length of the resulting Uint8Array is larger than 4! (actual length: ${result.length})\n${sourceFile.rawLines[line.lineNo]}`);
+            let currIndex = 0;
+            for (const res of results) {
+                result.set(res, currIndex);
+                currIndex += res.length;
+            }
+            return Assembler.createSimpleGenerator(result);
+        };
         if (Assembler.isAbsoluteBranchInstruction(instr.mnemonic)) {
             return {
                 ...instr, parser: (line: AssemblyLine, sourceFile: AssemblyFile, labels: Map<string, Label[]>,
-                    availableFiles: Map<string, AssemblyFile>, assemblerOrder: string[]) => {
+                    availableFiles: Map<string, AssemblyFile>, assemblerOrder: string[]): BinaryGenerator => {
                     const args = Assembler.getArgs(line.code);
                     if (args.length == 0)
                         throw new Error(`Too few arguments provided for instruction at ${line.filename}:${line.lineNo + 1} :\n${sourceFile.rawLines[line.lineNo]}`);
@@ -40,12 +67,11 @@ export default class Assembler {
                         return Assembler.createLabelResolveGenerator(instr.id, this.resolveLabelName(args[0], line, labels, availableFiles, assemblerOrder));
                     // TODO: Add special case for RJMP
                     this.warn(`Warning at ${line.filename}:${line.lineNo + 1} : Jumping to explicit addresses is discouraged. Use labels instead`);
-                    // TODO: implement regular parsing
+                    return regularParser(line, sourceFile, labels, availableFiles, assemblerOrder);
                 }
             }
         }
-        // TODO: implement parsing for "normal" instructions
-        return instr as Instruction;
+        return { ...instr, parser: regularParser };
     }
 
     async assemble(filename: string): Promise<Uint8Array> {
@@ -261,6 +287,65 @@ ${candidates}`);
         return result.filter(e => e.length > 0);
     }
 
+    protected createArgParser(argDef: string): ArgParser {
+        const type = argDef.toLowerCase().startsWith("byte") ? ArgType.BYTE : ArgType.REGISTER;
+        const length = ((): number => {
+            if (!argDef.includes("~"))
+                return 1;
+            const tildePos = argDef.indexOf("~");
+            if (type == ArgType.BYTE)
+                return (parseInt(argDef[argDef.length - 1]) - parseInt(argDef[tildePos - 1])) + 1;
+            // if (type == ArgType.REGISTER)
+            const lowerCase = argDef.toLowerCase();
+            return (lowerCase.charCodeAt(argDef.length - 1) - lowerCase.charCodeAt(tildePos - 1)) + 1;
+        })();
+        return (arg: string, line: AssemblyLine): Uint8Array => {
+            const result = new Uint8Array(length);
+            if (type == ArgType.REGISTER) {
+                const individualRegisters = arg.split("~");
+                if (individualRegisters.length > length)
+                    throw new Error(`Too many registers supplied for definition ${argDef} (${length} registers expected, ${individualRegisters.length} registers supplied)!`);
+                else if (individualRegisters.length < length)
+                    throw new Error(`Too many registers supplied for definition ${argDef} (${length} registers expected, ${individualRegisters.length} registers supplied)!`);
+                for (let i = 0; i < individualRegisters.length; i++) {
+                    if (!individualRegisters[i].toLowerCase().startsWith("r"))
+                        throw new Error(`${individualRegisters[i]} is not a register! Have you forgotten to prefix the register ID with "r"?`);
+                    result[i] = parseInt(individualRegisters[i].substring(1));
+                    if (result[i] >= regLimit)
+                        this.warn(`Warning at ${line.filename}:${line.lineNo + 1} - There is no register r${result[i]}!`);
+                }
+            } else /* type == ArgType.BYTE */ {
+                if (arg.startsWith("'")) {
+                    arg = arg.substring(1, arg.length - 1).replaceAll("\\'", "'");
+                    if (arg.length > length)
+                        throw new Error(`Too many bytes supplied for definition ${argDef} (${length} bytes expected, ${arg.length} bytes supplied)!`);
+                    if (arg.length < length)
+                        throw new Error(`Too few bytes supplied for definition ${argDef} (${length} bytes expected, ${arg.length} bytes supplied)!`);
+                    for (let i = 0; i < arg.length; i++) {
+                        result[length - (i + 1)] = arg.charCodeAt(i);
+                    }
+                } else {
+                    const value: number = ((): number => {
+                        if (arg.startsWith("0b")) {
+                            return parseInt(arg.substring(2), 2);
+                        } else if (arg.toLowerCase().startsWith("rgb")) {
+                            arg = arg.substring(arg.indexOf("("), arg.indexOf(")"));
+                            const rgb = arg.split(",").map((e => parseInt(e.trim())));
+                            if (rgb.length != 3)
+                                throw new Error(`RGB values must be supplied as three comma-separated integers!`); // Thanks for this message, GitHub copilot!
+                            return (((rgb[0] & 0xF8) << 8) | ((rgb[1] & 0xFC) << 3) | (rgb[2] >>> 3));
+                        }
+                        return parseInt(arg);
+                    })();
+                    for (let i = 0; i < length; i++) {
+                        result[i] = value >>> (8 * i);
+                    }
+                }
+            }
+            return result;
+        };
+    }
+
     warn(warning: string) {
         const oldText = this.spinner.text;
         this.spinner.warn(warning);
@@ -279,6 +364,8 @@ type InstructionParser = (line: AssemblyLine, sourceFile: AssemblyFile, labels: 
     availableFiles: Map<string, AssemblyFile>, assemblerOrder: string[]) => BinaryGenerator;
 
 type BinaryGenerator = (labels: Map<Label, number>) => Uint8Array;
+
+type ArgParser = (arg: string, line: AssemblyLine) => Uint8Array;
 
 interface Label {
     name: string;
@@ -304,4 +391,9 @@ interface AssemblyFile {
 
 interface TransformedAssemblyFile extends AssemblyFile {
     code: TransformedAssemblyLine[];
+}
+
+enum ArgType {
+    BYTE,
+    REGISTER
 }
