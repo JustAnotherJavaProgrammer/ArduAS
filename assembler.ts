@@ -49,7 +49,8 @@ export default class Assembler {
             const result = new Uint8Array(Math.max(results.reduce((acc, val) => acc + val.length, 1), 4));
             if (result.length != 4)
                 throw new Error(`Error while parsing ${line.filename}:${line.lineNo + 1} - The length of the resulting Uint8Array is larger than 4! (actual length: ${result.length})\n${sourceFile.rawLines[line.lineNo]}`);
-            let currIndex = 0;
+            result[0] = instr.id;
+                let currIndex = 1;
             for (const res of results) {
                 result.set(res, currIndex);
                 currIndex += res.length;
