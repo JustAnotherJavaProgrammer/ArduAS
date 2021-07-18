@@ -26,7 +26,15 @@ spinner.info();
 spinner.indent = 1;
 try {
     const binaryData = await assembler.assemble(sourceFile);
-    // await Deno.writeFile(outputFile, binaryData);
+    spinner.indent = 0;
+    spinner.succeed(`Assembly complete!`);
+    spinner.color = "green";
+    spinner.text = `Writing ${outputFile} ...`;
+    spinner.start();
+    await Deno.writeFile(outputFile, binaryData);
+    spinner.succeed();
+    spinner.succeed("Done!");
+    spinner.info(`Binary size: ${binaryData.length} bytes`);
 } catch (e) {
     spinner.indent = 0;
     spinner.fail(`Compilation failed: ${e.message}`);

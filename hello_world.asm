@@ -4,7 +4,7 @@ clr_scrn: ; clears the screen
 drw_txt: ; draws text
     TCOLI rgb(0, 0, 255) // set text color
     TSIZI 4
-    TWRAP 1
+    TWRAPI 1
     LDI r1 10
     TCPOS r1 r1
     TOUTI 'H'
@@ -19,4 +19,4 @@ drw_txt: ; draws text
     TOUTI 'l'
     TOUTI 'd'
     TOUTI '!'
-    JMP clr_scrn
+    JMPI clr_scrn

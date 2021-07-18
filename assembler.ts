@@ -23,7 +23,7 @@ export default class Assembler {
         const grammar: Grammar = new Map<string, Instruction>();
         for (const instrDef of lines) {
             const fields = instrDef.split("\t").map(field => field.trim());
-            const instr: Omit<Instruction, "parser"> = { id: parseInt(fields[0]), mnemonic: fields[1], args: fields[2]?.split(/(\s|,)+/gm).map(arg => arg.trim()).filter((arg, index) => (arg !== undefined && index !== 0 && arg?.length > 0) ?? false) ?? [] };
+            const instr: Omit<Instruction, "parser"> = { id: parseInt(fields[0]), mnemonic: fields[1].toUpperCase(), args: fields[2]?.split(/(\s|,)+/gm).map(arg => arg.trim()).filter((arg, index) => (arg !== undefined && index !== 0 && arg?.length > 0) ?? false) ?? [] };
             grammar.set(instr.mnemonic, this.createInstrParser(instr));
         }
         return grammar;
@@ -48,7 +48,7 @@ export default class Assembler {
             }
             const result = new Uint8Array(Math.max(results.reduce((acc, val) => acc + val.length, 1), 4));
             if (result.length != 4)
-                throw new Error(`Error while parsing ${line.filename}:${line.lineNo} - The length of the resulting Uint8Array is larger than 4! (actual length: ${result.length})\n${sourceFile.rawLines[line.lineNo]}`);
+                throw new Error(`Error while parsing ${line.filename}:${line.lineNo + 1} - The length of the resulting Uint8Array is larger than 4! (actual length: ${result.length})\n${sourceFile.rawLines[line.lineNo]}`);
             let currIndex = 0;
             for (const res of results) {
                 result.set(res, currIndex);
@@ -75,61 +75,107 @@ export default class Assembler {
     }
 
     async assemble(filename: string): Promise<Uint8Array> {
-        this.spinner.text = "Loading source files...";
-        this.spinner.color = "cyan";
-        this.spinner.start();
-        filename = this.filepathNormalizer(filename);
-        const sourceFiles = new Map<string, AssemblyFile>();
-        try {
-            sourceFiles.set(filename, await this.loadAssemblyFile(filename));
-            {
-                const dependencyQueue: string[] = [...sourceFiles.get(filename)?.dependencies ?? []];
-                while (dependencyQueue.length > 0) {
-                    const dep: string = dependencyQueue.shift() ?? "";
-                    if (!sourceFiles.has(dep)) {
-                        const assemblyFile = await this.loadAssemblyFile(dep);
-                        dependencyQueue.push(...assemblyFile.dependencies);
-                        sourceFiles.set(assemblyFile.filename, assemblyFile);
+        let processedFiles: TransformedAssemblyFile[];
+        let resolvedLabels: Map<Label, number>;
+
+        {
+            this.spinner.text = "Loading source files...";
+            this.spinner.color = "cyan";
+            this.spinner.start();
+            filename = this.filepathNormalizer(filename);
+            const sourceFiles = new Map<string, AssemblyFile>();
+            try {
+                sourceFiles.set(filename, await this.loadAssemblyFile(filename));
+                {
+                    const dependencyQueue: string[] = [...sourceFiles.get(filename)?.dependencies ?? []];
+                    while (dependencyQueue.length > 0) {
+                        const dep: string = dependencyQueue.shift() ?? "";
+                        if (!sourceFiles.has(dep)) {
+                            const assemblyFile = await this.loadAssemblyFile(dep);
+                            dependencyQueue.push(...assemblyFile.dependencies);
+                            sourceFiles.set(assemblyFile.filename, assemblyFile);
+                        }
                     }
                 }
-            }
-        } catch (e) {
-            this.spinner.fail();
-            throw e;
-        }
-        this.spinner.succeed(`Loaded ${sourceFiles.size} source file${sourceFiles.size == 1 ? "" : "s"}!`);
-        this.spinner.text = "Collecting labels...";
-        this.spinner.color = "yellow";
-        this.spinner.start();
-        const labels = new Map<string, Label[]>();
-        for (const [filename, assemblyFile] of sourceFiles) {
-            for (const [lineNo, name] of assemblyFile.labels) {
-                if (!labels.has(name))
-                    labels.set(name, []);
-                labels.get(name)?.push({ name: name, filename: filename, lineNo: lineNo });
-                this.spinner.text = `Collecting labels: ${labels.size}`;
-            }
-        }
-        this.spinner.succeed(`Collected ${labels.size} label${labels.size == 1 ? "" : "s"}`);
-        this.spinner.text = "Sorting the source files...";
-        this.spinner.color = "gray";
-        this.spinner.start();
-        const sortedSourceFiles: string[] = [];
-        {
-            const depMap = new Map<string, string[]>();
-            for (const [filename, sourceFile] of sourceFiles) {
-                depMap.set(filename, sourceFile.dependencies);
-            }
-            try {
-                sortedSourceFiles.push(...toposortReverse(depMap).flatMap(elem => Array.from(elem)));
-            } catch (_e) {
+            } catch (e) {
                 this.spinner.fail();
-                throw new Error(`The source files contain circular dependencies!`);
+                throw e;
+            }
+            this.spinner.succeed(`Loaded ${sourceFiles.size} source file${sourceFiles.size == 1 ? "" : "s"}!`);
+            this.spinner.text = "Collecting labels...";
+            this.spinner.color = "yellow";
+            this.spinner.start();
+            const labels = new Map<string, Label[]>();
+            for (const [filename, assemblyFile] of sourceFiles) {
+                for (const [lineNo, name] of assemblyFile.labels) {
+                    if (!labels.has(name))
+                        labels.set(name, []);
+                    labels.get(name)?.push({ name: name, filename: filename, lineNo: lineNo });
+                    this.spinner.text = `Collecting labels: ${labels.size}`;
+                }
+            }
+            this.spinner.succeed(`Collected ${labels.size} label${labels.size == 1 ? "" : "s"}!`);
+            this.spinner.text = "Sorting the source files...";
+            this.spinner.color = "gray";
+            this.spinner.start();
+            const sortedSourceFiles: string[] = [];
+            {
+                const depMap = new Map<string, string[]>();
+                for (const [filename, sourceFile] of sourceFiles) {
+                    depMap.set(filename, sourceFile.dependencies);
+                }
+                try {
+                    sortedSourceFiles.push(...toposortReverse(depMap).flatMap(elem => Array.from(elem)));
+                } catch (_e) {
+                    this.spinner.fail();
+                    throw new Error(`The source files contain circular dependencies!`);
+                }
+            }
+            this.spinner.succeed(`Sorted ${sortedSourceFiles.length} source file${sortedSourceFiles.length == 1 ? "" : "s"}!`);
+            // console.log(sortedSourceFiles);
+            this.spinner.color = "blue";
+            this.spinner.text = "Processing individual source files...";
+            this.spinner.start();
+            processedFiles = [];
+            for (let i = 0; i < sortedSourceFiles.length; i++) {
+                this.spinner.text = `Processing ${sortedSourceFiles[i]} (${i + 1}/${sortedSourceFiles.length})...`;
+                try {
+                    processedFiles.push(this.transformAssemblyFile(sourceFiles.get(sortedSourceFiles[i]) as AssemblyFile, labels, sourceFiles, sortedSourceFiles));
+                } catch (e) {
+                    this.spinner.fail();
+                    throw e;
+                }
+            }
+            this.spinner.succeed(`Processed ${sortedSourceFiles.length} source file${sortedSourceFiles.length === 1 ? "" : "s"}!`);
+
+            this.spinner.text = "Resolving the exact positions of labels in the final binary...";
+            this.spinner.color = "red";
+            this.spinner.start();
+            resolvedLabels = this.resolveLabels(labels, processedFiles);
+            this.spinner.succeed(`Resolved the exact positions of ${resolvedLabels.size} label${resolvedLabels.size == 1 ? "" : "s"}!`);
+        }
+
+        this.spinner.text = "Collecting the binary data for all instructions...";
+        this.spinner.color = "magenta";
+        this.spinner.start();
+        const instrTotal = processedFiles.reduce((acc, file) => acc + file.code.length, 0);
+        let instrCounter = 0;
+        const finalResult = new Uint8Array(17 + instrTotal * 4);
+        finalResult.set([65, 114, 100, 117, 79, 83, 32, 98, 121, 116, 101, 99, 111, 100, 101]);
+        finalResult.set([0x00, 0x00], 15);
+        let currOffset = 17;
+        for (let i = 0; i < processedFiles.length; i++) {
+            const file = processedFiles[i];
+            for (const instr of file.code) {
+                this.spinner.text = `Collecting the binary data for all instructions (${instrCounter}/${instrTotal})...`;
+                finalResult.set(instr.generator(resolvedLabels), currOffset);
+                currOffset += 4;
+                instrCounter++;
             }
         }
-        this.spinner.succeed(`Sorted ${sortedSourceFiles.length} source file${sortedSourceFiles.length == 1 ? "" : "s"}!`);
-        console.log(sortedSourceFiles);
-        return new Uint8Array([65, 114, 100, 117, 79, 83, 32, 98, 121, 116, 101, 99, 111, 100, 101]);
+        this.spinner.succeed(`Collected the binary data for all ${instrTotal} instruction${instrTotal === 1 ? "" : "s"}!`);
+        // TODO: get label addresses and create final Uint8Array
+        return finalResult;
     }
 
     async loadAssemblyFile(filename: string): Promise<AssemblyFile> {
@@ -170,25 +216,45 @@ export default class Assembler {
         return [...this.grammar.keys()].some(mnemonic => line.startsWith(mnemonic + " "));
     }
 
-    // transformAssemblyFile(sourceFile: AssemblyFile, labels: Map<string, Label[]>, availableFiles: Map<string, AssemblyFile>, assemblerOrder: string[]): TransformedAssemblyFile {
-    //     const generatorArr: BinaryGenerator = [];
-    //     for (const line of sourceFile.code) {
-    //         const codeSplit = line.code.split(/\s/g).map(e => e.trim()).filter(e => e.length > 0);
-    //         const mnemonic = codeSplit[0];
+    transformAssemblyFile(sourceFile: AssemblyFile, labels: Map<string, Label[]>, availableFiles: Map<string, AssemblyFile>, assemblerOrder: string[]): TransformedAssemblyFile {
+        for (const line of sourceFile.code) {
+            const mnemonic = line.code.split(/\s/g, 2)[0].trim().toUpperCase();
+            if (this.grammar.get(mnemonic) === undefined)
+                throw new Error(`Error at ${line.filename}:${line.lineNo + 1} - Unknown mnemonic: ${mnemonic}\n${sourceFile.rawLines[line.lineNo]}`);
+            (line as TransformedAssemblyLine).generator = (this.grammar.get(mnemonic) as Instruction).parser(line, sourceFile, labels, availableFiles, assemblerOrder);
+        }
+        return sourceFile as TransformedAssemblyFile;
+    }
 
-    //     }
-    //     // TODO: implement
-    // }
+    protected resolveLabels(labels: Map<string, Label[]>, sourceFiles: TransformedAssemblyFile[]): Map<Label, number> {
+        const result = new Map<Label, number>();
+        for (const list of labels.values()) {
+            for (const individualLabel of list) {
+                result.set(individualLabel, ((): number => {
+                    const startingPosition = sourceFiles.findIndex(file => file.filename === individualLabel.filename);
+                    const offset = sourceFiles.reduce((acc, val, index) => index < startingPosition ? acc + val.code.length : acc, 0);
+                    for (const line of sourceFiles[startingPosition].code) {
+                        if (line.lineNo > individualLabel.lineNo) {
+                            return offset + line.lineNo
+                        }
+                    }
+                    return offset + sourceFiles[startingPosition].code.length;
+                })());
+            }
+        }
+        return result;
+    }
 
     static createSimpleGenerator(result: Uint8Array): BinaryGenerator {
         return () => result;
     }
 
-    static createLabelResolveGenerator(instrID: number, target: Label, startingAtByteNo = 0, howLong = 3): BinaryGenerator {
+    static createLabelResolveGenerator(instrID: number, target: Label, startingAtByteNo = 0, howLong = 3, relativeTo = 0): BinaryGenerator {
         return (labels: Map<Label, number>) => {
-            const targetNo = labels.get(target);
+            let targetNo = labels.get(target);
             if (targetNo === undefined)
                 throw new Error(`Label ${target.name} from file ${target.filename}:${target.lineNo + 1} could not be located!`);
+            targetNo -= relativeTo;
             const res = new Uint8Array(4);
             const baseShift = startingAtByteNo * 8;
             res[0] = instrID;
@@ -267,6 +333,9 @@ ${candidates}`);
             // deno-lint-ignore no-empty-character-class
             const singleQuote = Array.from(code.matchAll(/(?<!\\)'/gd)).map(e => e.index);
             // deno-lint-ignore no-empty-character-class
+            const rgbPseudoFunction = Array.from(code.matchAll(/rgb\s*\(.*\)/gd)).map(e => ({ pos: e.index as number, len: e[0].length }));
+            // console.log(rgbPseudoFunction);
+            // deno-lint-ignore no-empty-character-class
             const whitespace = Array.from(code.matchAll(/\s/gd)).map(e => e.index);
             for (const index of singleQuote) {
                 if (index === undefined)
@@ -276,7 +345,8 @@ ${candidates}`);
                 if (index === undefined)
                     throw new Error("A matching whitespace has no index!");
                 // Check for an even number of (not escaped) single quotes before the whitespace
-                if ((singleQuote as number[]).reduce((acc, val) => val < index ? acc + 1 : acc, 0) % 2 === 0)
+                if ((singleQuote as number[]).reduce((acc, val) => val < index ? acc + 1 : acc, 0) % 2 === 0 &&
+                    (!rgbPseudoFunction.some(e => index > e.pos && index < e.pos + e.len)))
                     splits.push(index);
             }
         }
