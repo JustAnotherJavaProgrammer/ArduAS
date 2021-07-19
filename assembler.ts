@@ -247,9 +247,9 @@ export default class Assembler {
                 result.set(individualLabel, ((): number => {
                     const startingPosition = sourceFiles.findIndex(file => file.filename === individualLabel.filename);
                     const offset = sourceFiles.reduce((acc, val, index) => index < startingPosition ? acc + val.code.length : acc, 0);
-                    for (const line of sourceFiles[startingPosition].code) {
+                    for (const [index, line] of sourceFiles[startingPosition].code.entries()) {
                         if (line.lineNo > individualLabel.lineNo) {
-                            return offset + line.lineNo
+                            return offset + index;
                         }
                     }
                     return offset + sourceFiles[startingPosition].code.length;
@@ -395,7 +395,7 @@ ${candidates}`);
                 if (individualRegisters.length > length)
                     throw new Error(`Too many registers supplied for definition ${argDef} (${length} registers expected, ${individualRegisters.length} registers supplied)!`);
                 else if (individualRegisters.length < length)
-                    throw new Error(`Too many registers supplied for definition ${argDef} (${length} registers expected, ${individualRegisters.length} registers supplied)!`);
+                    throw new Error(`Too few registers supplied for definition ${argDef} (${length} registers expected, ${individualRegisters.length} registers supplied)!`);
                 for (let i = 0; i < individualRegisters.length; i++) {
                     if (!individualRegisters[i].toLowerCase().startsWith("r"))
                         throw new Error(`${individualRegisters[i]} is not a register! Have you forgotten to prefix the register ID with "r"?`);
@@ -415,11 +415,14 @@ ${candidates}`);
                     }
                 } else {
                     const value: number = ((): number => {
+                        // console.log(line.code + ": " + arg + arg.toLowerCase().startsWith("rgb"));
                         if (arg.startsWith("0b")) {
                             return parseInt(arg.substring(2), 2);
                         } else if (arg.toLowerCase().startsWith("rgb")) {
-                            arg = arg.substring(arg.indexOf("("), arg.indexOf(")"));
+                            arg = arg.substring(arg.indexOf("(") + 1, arg.indexOf(")"));
                             const rgb = arg.split(",").map((e => parseInt(e.trim())));
+                            // console.log(line.code + ": " + rgb + " " + (((rgb[0] & 0xF8) << 8) | ((rgb[1] & 0xFC) << 3) | (rgb[2] >>> 3)).toString(2) +
+                            //     " " + (((rgb[0] & 0xF8) << 8) | ((rgb[1] & 0xFC) << 3) | (rgb[2] >>> 3)).toString(16));
                             if (rgb.length != 3)
                                 throw new Error(`RGB values must be supplied as three comma-separated integers!`); // Thanks for this message, GitHub copilot!
                             return (((rgb[0] & 0xF8) << 8) | ((rgb[1] & 0xFC) << 3) | (rgb[2] >>> 3));
