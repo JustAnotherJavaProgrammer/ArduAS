@@ -50,7 +50,7 @@ export default class Assembler {
             if (result.length != 4)
                 throw new Error(`Error while parsing ${line.filename}:${line.lineNo + 1} - The length of the resulting Uint8Array is larger than 4! (actual length: ${result.length})\n${sourceFile.rawLines[line.lineNo]}`);
             result[0] = instr.id;
-                let currIndex = 1;
+            let currIndex = 1;
             for (const res of results) {
                 result.set(res, currIndex);
                 currIndex += res.length;
@@ -65,8 +65,22 @@ export default class Assembler {
                     if (args.length == 0)
                         throw new Error(`Too few arguments provided for instruction at ${line.filename}:${line.lineNo + 1} :\n${sourceFile.rawLines[line.lineNo]}`);
                     if (labels.has(args[0]))
-                        return Assembler.createLabelResolveGenerator(instr.id, this.resolveLabelName(args[0], line, labels, availableFiles, assemblerOrder));
-                    // TODO: Add special case for RJMP
+                        return Assembler.createLabelResolveGenerator(instr.id, this.resolveLabelName(args[0], line, labels, availableFiles, assemblerOrder), undefined, undefined, instr.mnemonic === "RJMP" ? ((): number => {
+                            let counter = 0;
+                            for (const filename of assemblerOrder) {
+                                if (filename === line.filename) {
+                                    for (const asmLine of sourceFile.code) {
+                                        counter++;
+                                        if (line.lineNo === asmLine.lineNo)
+                                            break;
+                                    }
+                                    break;
+                                } else {
+                                    counter += (availableFiles.get(filename) as AssemblyFile).code.length;
+                                }
+                            }
+                            return counter;
+                        })() : undefined);
                     this.warn(`Warning at ${line.filename}:${line.lineNo + 1} : Jumping to explicit addresses is discouraged. Use labels instead`);
                     return regularParser(line, sourceFile, labels, availableFiles, assemblerOrder);
                 }
@@ -175,7 +189,6 @@ export default class Assembler {
             }
         }
         this.spinner.succeed(`Collected the binary data for all ${instrTotal} instruction${instrTotal === 1 ? "" : "s"}!`);
-        // TODO: get label addresses and create final Uint8Array
         return finalResult;
     }
 
@@ -259,6 +272,12 @@ export default class Assembler {
             const res = new Uint8Array(4);
             const baseShift = startingAtByteNo * 8;
             res[0] = instrID;
+            if (instrID === 0x2F) { // RJMP
+                // FIXME: might contain bugs, needs to be tested!
+                const isNegative = targetNo >>> 31;
+                const cutTarget = (targetNo << 9) >>> 9;
+                targetNo = isNegative << 23 + cutTarget;
+            }
             for (let i = 0; i < howLong; i++) {
                 res[i + 1] = targetNo >>> (baseShift + (i * 8));
             }
@@ -268,8 +287,7 @@ export default class Assembler {
 
     static isAbsoluteBranchInstruction(mnemonic: string): boolean {
         mnemonic = mnemonic.trim().toUpperCase();
-        // TODO: add labels for RJMP
-        return mnemonic.startsWith("BR") || mnemonic === "CALLI" || mnemonic === "JMPI";
+        return mnemonic.startsWith("BR") || mnemonic === "CALLI" || mnemonic === "JMPI" || mnemonic === "RJMP";
     }
 
     protected resolveLabelName(labelName: string, line: AssemblyLine, labels: Map<string, Label[]>, availableFiles: Map<string, AssemblyFile>, compilationOrder: string[]): Label {
