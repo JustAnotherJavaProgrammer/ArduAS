@@ -227,7 +227,7 @@ export default class Assembler {
 
     isLineOfCode(line: string): boolean {
         line = line.trim().toUpperCase();
-        return [...this.grammar.keys()].some(mnemonic => line.startsWith(mnemonic + " "));
+        return [...this.grammar.keys()].some(mnemonic => line.startsWith(mnemonic) && (line.length == mnemonic.length || line.replaceAll(/s/g, " ")[mnemonic.length] === " "));
     }
 
     transformAssemblyFile(sourceFile: AssemblyFile, labels: Map<string, Label[]>, availableFiles: Map<string, AssemblyFile>, assemblerOrder: string[]): TransformedAssemblyFile {
