@@ -1,27 +1,27 @@
 LDI r2, rgb(255, 0, 0)
 LDI r3, rgb(255, 255, 0)
+LDI r1 10
+TSIZI 4
+TWRAPI 1
+SOUTI 'R'
 loop:
-    ; CALLI clr_scrn
-    JMPI clr_scrn
-    ; CALLI drw_txt
-    ; CALLI set_colors
+    CALLI clr_scrn
+    CALLI drw_txt
+    CALLI set_colors
     JMPI loop
 
 
 clr_scrn: ; clears the screen
     SCLR r2
-    ; RET
+    RET
 
 set_colors:
     ADDI r2, 1
     SUBI r3, 1
-    ; RET
+    RET
 
 drw_txt: ; draws text
     TCOL r3 // set text color
-    TSIZI 4
-    TWRAPI 1
-    LDI r1 10
     TCPOS r1 r1
     TOUTI 'H'
     TOUTI 'e'
@@ -35,5 +35,5 @@ drw_txt: ; draws text
     TOUTI 'l'
     TOUTI 'd'
     TOUTI '!'
-    ; RET
-    JMPI loop
+    RET
+    ; JMPI loop
